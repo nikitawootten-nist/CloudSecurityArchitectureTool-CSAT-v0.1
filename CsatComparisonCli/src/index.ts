@@ -10,10 +10,11 @@ const COMPARISON_WORKSHEET_NAME = 'Rev4 Rev5 Compared';
 const OUTPUT_WORKBOOK_FILENAME = 'vault/output.xlsx';
 
 const COLOR_GREEN = { argb: 'FF63BE7B' };
-const COLOR_YELLOW = { argb: 'FFFFC300' };
+const COLOR_ORANGE = { argb: 'FFEDB126' };
 const COLOR_RED = { argb: 'FFF8696B' };
 const COLOR_PURPLE = { argb: 'FFBF40BF' };
 const COLOR_BLACK = { argb: 'FF000000' };
+const COLOR_BLUE = { argb: 'FF3A26ED' };
 
 function columnFromIndex(index: number) {
     let quotient = index + 1;
@@ -69,14 +70,16 @@ function duplicateWorksheet(workbook: ExcelJS.Workbook, oldName: string, newName
 
 function populateControlMap(
     worksheet: ExcelJS.Worksheet,
-): Map<string, 'unchanged' | 'editorial/administrative' | 'changed' | 'withdrawn'> {
+): Map<string, 'unchanged' | 'editorial/administrative' | 'changed' | 'withdrawn' | 'keep'> {
     return new Map(
         worksheet
             .getRows(3, worksheet.rowCount - 2)
-            ?.map<[string, 'unchanged' | 'editorial/administrative' | 'changed' | 'withdrawn']>((row) => {
+            ?.map<[string, 'unchanged' | 'editorial/administrative' | 'changed' | 'withdrawn' | 'keep']>((row) => {
                 const rawId = row.getCell('A').text;
                 const rawEditorialSwitch = row.getCell('G').text;
                 const rawChangedElements = row.getCell('H').text;
+                // only exits on versions manually updated
+                const cloudOverlayOverride = row.getCell('I').text;
 
                 if (rawEditorialSwitch === 'N') {
                     if (rawChangedElements === 'N') {
@@ -86,6 +89,9 @@ function populateControlMap(
                     }
                 } else if (rawChangedElements === 'Withdrawn') {
                     return [rawId, 'withdrawn'];
+                } else if (cloudOverlayOverride === 'K') {
+                    // if the cloud overlay column exists and the control is set to the "Keep" status
+                    return [rawId, 'keep'];
                 } else {
                     return [rawId, 'changed'];
                 }
@@ -104,6 +110,7 @@ async function init() {
 
     const capv5_ws = duplicateWorksheet(csat_wb, CAP_WORKSHEET_NAME, CAPv5_WORKSHEET_NAME);
 
+    // loop through cloud overlay control list, for each control style the control depending on the control map
     generateRange('I', 8, 'X', 353).forEach((cellName) => {
         const cell = capv5_ws.getCell(cellName);
 
@@ -118,7 +125,7 @@ async function init() {
                         font: {
                             strike: status === 'withdrawn',
                             bold: status === 'changed',
-                            italic: status === 'editorial/administrative',
+                            italic: status === 'editorial/administrative' || status === 'keep',
                             underline: status === 'unknown',
                             color:
                                 status === 'unchanged'
@@ -126,16 +133,32 @@ async function init() {
                                     : status === 'unknown'
                                     ? COLOR_PURPLE
                                     : status === 'changed'
-                                    ? COLOR_YELLOW
+                                    ? COLOR_ORANGE
                                     : status === 'editorial/administrative'
                                     ? COLOR_BLACK
+                                    : status === 'keep'
+                                    ? COLOR_BLUE
                                     : COLOR_RED,
                         },
                     },
                     { text: ', ' },
                 ]),
         };
-        cell.value.richText.pop();
+        cell.value.richText.pop(); // remove last comma
+    });
+
+    // replace all instancess of rev4 with rev5
+    generateRange('I', 5, 'X', 6).forEach((cellName) => {
+        const cell = capv5_ws.getCell(cellName);
+
+        if (typeof cell.value === 'string') {
+            cell.value = cell.value.replace('R4', 'R5').replace('r4', 'r5').replace('Rev4', 'Rev5');
+        } else if (cell.value && typeof cell.value == 'object' && 'richText' in cell.value) {
+            cell.value.richText = cell.value.richText.map((richText) => ({
+                ...richText,
+                text: richText.text.replace('R4', 'R5').replace('r4', 'r5').replace('Rev4', 'Rev5'),
+            }));
+        }
     });
 
     csat_wb.xlsx.writeFile(OUTPUT_WORKBOOK_FILENAME);
