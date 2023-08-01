@@ -1,14 +1,20 @@
 import * as ExcelJS from 'exceljs';
 
-const CSAT_WORKBOOK_FILENAME = 'vault/_CSAT_2020.04.07_clean_modified.xlsx';
+const CSAT_WORKBOOK_FILENAME = 'vault/CC_Overlay-SRA-CSAT_2018.04.14.xlsx';
 const CAP_WORKSHEET_NAME = 'Capabilities - Sec Controls';
 const CAPv5_WORKSHEET_NAME = 'Capabilities v5 - Sec Controls';
 
 const COMPARISON_WORKBOOK_FILENAME = 'vault/sp800-53r4-to-r5-comparison-workbook.xlsx';
 const COMPARISON_WORKSHEET_NAME = 'Rev4 Rev5 Compared';
 
-const OVERRIDE_WORKBOOK_FILENAME = 'vault/CLOUD OVERLAY CHANGES_12-13-2021.xlsx';
+const OVERRIDE_WORKBOOK_FILENAME = 'vault/CLOUD OVERLAY CHANGES_3-24-2022.xlsx';
 const OVERRIDE_WORKSHEET_NAME = 'Sheet1';
+
+const ADDITIONS_WORKBOOK_FILENAME = 'vault/CSAT_FEDRAMP REV 5 CONTROLS TO BE ADDED_7-6-2023.xlsx';
+const ADDITIONS_WORKSHEETS_COLUMN_MAPPING: Record<string, string> = {};
+ADDITIONS_WORKSHEETS_COLUMN_MAPPING[`${indexFromColumn('K')}`] = 'LOW';
+ADDITIONS_WORKSHEETS_COLUMN_MAPPING[`${indexFromColumn('O')}`] = 'MODERATE';
+ADDITIONS_WORKSHEETS_COLUMN_MAPPING[`${indexFromColumn('S')}`] = 'HIGH';
 
 const OUTPUT_WORKBOOK_FILENAME = 'vault/output.xlsx';
 
@@ -18,6 +24,7 @@ const COLOR_RED = { argb: 'FFF8696B' };
 const COLOR_PURPLE = { argb: 'FFBF40BF' };
 const COLOR_BLACK = { argb: 'FF000000' };
 const COLOR_BLUE = { argb: 'FF3A26ED' };
+const COLOR_MAGENTA = { argb: 'FFFF00FF' };
 
 function columnFromIndex(index: number) {
     let quotient = index + 1;
@@ -34,25 +41,37 @@ function columnFromIndex(index: number) {
     return column;
 }
 
+/**
+ * Get a numeric index from an excel column
+ * @param column The column name
+ * @returns The excel index for a given column (starting at 1)
+ */
 function indexFromColumn(column: string) {
-    return (
-        column
-            .split('')
-            .reverse()
-            .map<number>((letter, index) => (letter.charCodeAt(0) - 64) * 26 ** index)
-            .reduce((prev, curr) => prev + curr) - 1
-    );
+    return column
+        .toUpperCase()
+        .split('')
+        .reverse()
+        .map<number>((letter, index) => (letter.charCodeAt(0) - 64) * 26 ** index)
+        .reduce((prev, curr) => prev + curr);
 }
 
 function range(length: number, start = 0) {
     return [...Array.from(new Array(length), (_, i) => i + start)];
 }
 
+/**
+ * Given starting and ending columns and rows, generate a list of cell names e.g. "A5"
+ * @param startCol Starting column (e.g. "A")
+ * @param startRow Starting row (e.g. 1)
+ * @param endCol Ending column (e.g. "B")
+ * @param endRow Ending row (e.g. 2)
+ * @returns A list of cell names (e.g. ["A1", "A2", "B1", "B2"])
+ */
 function generateRange(startCol: string, startRow: number, endCol: string, endRow: number): string[] {
     const startColIndex = indexFromColumn(startCol);
     const endColIndex = indexFromColumn(endCol);
 
-    return range(endColIndex - startColIndex + 1, startColIndex).flatMap((curCol) =>
+    return range(endColIndex - startColIndex, startColIndex - 1).flatMap((curCol) =>
         range(endRow - startRow + 1, startRow).map((curRow) => `${columnFromIndex(curCol)}${curRow}`),
     );
 }
@@ -126,9 +145,19 @@ async function init() {
 
     const capv5_ws = duplicateWorksheet(csat_wb, CAP_WORKSHEET_NAME, CAPv5_WORKSHEET_NAME);
 
+    const addition_wb = new ExcelJS.Workbook();
+    await addition_wb.xlsx.readFile(ADDITIONS_WORKBOOK_FILENAME);
+
+    let replacements_count = 0;
+    let additions_count = 0;
+
     // loop through cloud overlay control list, for each control style the control depending on the control map
-    generateRange('I', 8, 'X', 353).forEach((cellName) => {
+    generateRange('I', 4, 'X', 349).forEach((cellName) => {
         const cell = capv5_ws.getCell(cellName);
+
+        if (cell.text.trim().length === 0) {
+            return;
+        }
 
         cell.value = {
             richText: cell.text
@@ -136,10 +165,39 @@ async function init() {
                 .map((control) => control.trim())
                 .map((control) => [control, controlMap.get(control) ?? 'unknown', overrideMap.get(control) ?? ''])
                 .flatMap<ExcelJS.RichText>(([control, status, replacement]) => {
+                    let additions: ExcelJS.RichText[] = [];
+                    if (cell.col in ADDITIONS_WORKSHEETS_COLUMN_MAPPING) {
+                        const addition_ws = addition_wb.getWorksheet(ADDITIONS_WORKSHEETS_COLUMN_MAPPING[cell.col]);
+
+                        addition_ws
+                            .getRows(0, addition_ws.rowCount - 1)
+                            ?.filter((row) => row.getCell('A').text.trim() === control)
+                            .forEach((row) => {
+                                additions_count += 1;
+                                additions.push(
+                                    {
+                                        text: row.getCell('C').text.trim().split(',')[0].trim(),
+                                        font: { color: COLOR_MAGENTA },
+                                    },
+                                    { text: ', ' },
+                                );
+                            });
+                    }
+                    if (additions.length != 0) {
+                        additions.pop();
+                        additions = [
+                            { text: ' (', font: { color: COLOR_MAGENTA } },
+                            ...additions,
+                            { text: ')', font: { color: COLOR_MAGENTA } },
+                        ];
+                    }
+
                     if (replacement !== '') {
+                        replacements_count += 1;
                         return [
                             { text: control, font: { color: COLOR_BLUE, bold: true, strike: true } },
                             { text: ` => ${replacement}`, font: { color: COLOR_BLUE, bold: true } },
+                            ...additions,
                             { text: ', ' },
                         ];
                     } else {
@@ -163,6 +221,7 @@ async function init() {
                                             : COLOR_RED,
                                 },
                             },
+                            ...additions,
                             { text: ', ' },
                         ];
                     }
@@ -171,7 +230,7 @@ async function init() {
         cell.value.richText.pop(); // remove last comma
     });
 
-    // replace all instancess of rev4 with rev5
+    // replace all instances of rev4 with rev5
     generateRange('I', 5, 'X', 6).forEach((cellName) => {
         const cell = capv5_ws.getCell(cellName);
 
@@ -186,6 +245,11 @@ async function init() {
     });
 
     csat_wb.xlsx.writeFile(OUTPUT_WORKBOOK_FILENAME);
+
+    console.log(`Additions complete!
+    Replacements: ${replacements_count}
+    Additions: ${additions_count}
+    `);
 }
 
 init();
