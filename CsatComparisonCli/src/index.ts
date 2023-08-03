@@ -171,12 +171,12 @@ async function init() {
 
                         addition_ws
                             .getRows(0, addition_ws.rowCount - 1)
-                            ?.filter((row) => row.getCell('A').text.trim() === control)
+                            ?.filter((row) => row.getCell('C').text.trim().split(',')[0].trim() === control)
                             .forEach((row) => {
                                 additions_count += 1;
                                 additions.push(
                                     {
-                                        text: row.getCell('C').text.trim().split(',')[0].trim(),
+                                        text: row.getCell('A').text.trim().split(',')[0].trim(),
                                         font: { color: COLOR_MAGENTA },
                                     },
                                     { text: ', ' },
