@@ -1,5 +1,8 @@
 import * as ExcelJS from 'exceljs';
 
+// Set to false to generate clean sheet
+const COLOR_FORMATTING = true;
+
 const CSAT_WORKBOOK_FILENAME = 'vault/CC_Overlay-SRA-CSAT_2018.04.14.xlsx';
 const CAP_WORKSHEET_NAME = 'Capabilities - Sec Controls';
 const CAPv5_WORKSHEET_NAME = 'Capabilities v5 - Sec Controls';
@@ -177,14 +180,14 @@ async function init() {
                                 additions.push(
                                     {
                                         text: row.getCell('A').text.trim().split(',')[0].trim(),
-                                        font: { color: COLOR_MAGENTA },
+                                        font: COLOR_FORMATTING ? { color: COLOR_MAGENTA } : {},
                                     },
                                     { text: ', ' },
                                 );
                             });
                     }
-                    if (additions.length != 0) {
-                        additions.pop();
+                    additions.pop();
+                    if (additions.length != 0 && COLOR_FORMATTING) {
                         additions = [
                             { text: ' (', font: { color: COLOR_MAGENTA } },
                             ...additions,
@@ -194,33 +197,39 @@ async function init() {
 
                     if (replacement !== '') {
                         replacements_count += 1;
-                        return [
-                            { text: control, font: { color: COLOR_BLUE, bold: true, strike: true } },
-                            { text: ` => ${replacement}`, font: { color: COLOR_BLUE, bold: true } },
-                            ...additions,
-                            { text: ', ' },
-                        ];
+                        return COLOR_FORMATTING
+                            ? [
+                                  { text: control, font: { color: COLOR_BLUE, bold: true, strike: true } },
+                                  { text: ` => ${replacement}`, font: { color: COLOR_BLUE, bold: true } },
+                                  ...additions,
+                                  { text: ', ' },
+                              ]
+                            : [{ text: replacement }, ...additions, { text: ', ' }];
                     } else {
                         return [
-                            {
-                                text: control,
-                                font: {
-                                    strike: status === 'withdrawn',
-                                    bold: status === 'changed',
-                                    italic: status === 'editorial/administrative',
-                                    underline: status === 'unknown',
-                                    color:
-                                        status === 'unchanged'
-                                            ? COLOR_GREEN
-                                            : status === 'unknown'
-                                            ? COLOR_PURPLE
-                                            : status === 'changed'
-                                            ? COLOR_ORANGE
-                                            : status === 'editorial/administrative'
-                                            ? COLOR_BLACK
-                                            : COLOR_RED,
-                                },
-                            },
+                            COLOR_FORMATTING
+                                ? {
+                                      text: control,
+                                      font: {
+                                          strike: status === 'withdrawn',
+                                          bold: status === 'changed',
+                                          italic: status === 'editorial/administrative',
+                                          underline: status === 'unknown',
+                                          color:
+                                              status === 'unchanged'
+                                                  ? COLOR_GREEN
+                                                  : status === 'unknown'
+                                                  ? COLOR_PURPLE
+                                                  : status === 'changed'
+                                                  ? COLOR_ORANGE
+                                                  : status === 'editorial/administrative'
+                                                  ? COLOR_BLACK
+                                                  : COLOR_RED,
+                                      },
+                                  }
+                                : {
+                                      text: status !== 'withdrawn' ? control : '',
+                                  },
                             ...additions,
                             { text: ', ' },
                         ];
@@ -231,7 +240,7 @@ async function init() {
     });
 
     // replace all instances of rev4 with rev5
-    generateRange('I', 5, 'X', 6).forEach((cellName) => {
+    generateRange('I', 1, 'X', 3).forEach((cellName) => {
         const cell = capv5_ws.getCell(cellName);
 
         if (typeof cell.value === 'string') {
